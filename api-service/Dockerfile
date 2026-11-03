@@ -11,7 +11,8 @@ FROM eclipse-temurin:17.0.20.1_1-jre-noble
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/* \
-    && groupadd --system vms && useradd --system --gid vms --home /app vms \
+    && groupadd --system --gid 10001 vms \
+    && useradd --system --uid 10001 --gid vms --home /app vms \
     && mkdir -p /app /data/storage && chown -R vms:vms /app /data
 WORKDIR /app
 COPY --from=build --chown=vms:vms /build/app.jar app.jar

@@ -1,0 +1,73 @@
+spring:
+  application:
+    name: vms-watermark
+  kafka:
+    bootstrap-servers: ${VMS_KAFKA_BOOTSTRAP:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+        delivery.timeout.ms: 30000
+        request.timeout.ms: 10000
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      max-poll-records: 1
+      properties:
+        # One clip (<= ~2 min) takes well under a minute; 5 min leaves room for the 3 min timeout.
+        max.poll.interval.ms: 300000
+    listener:
+      concurrency: 1
+
+server:
+  port: ${PORT:8081}
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+      group:
+        readiness:
+          include: readinessState,ffmpeg
+
+logging:
+  structured:
+    format:
+      console: ${VMS_LOG_FORMAT:}
+
+vms:
+  kafka:
+    video-uploaded-topic: video.uploaded.v1
+    watermark-result-topic: video.watermark.result.v1
+    partitions: ${VMS_KAFKA_PARTITIONS:3}
+    replication-factor: ${VMS_KAFKA_REPLICATION_FACTOR:1}
+  storage:
+    provider: ${VMS_STORAGE_PROVIDER:local}
+    bucket: ${VMS_GCS_BUCKET:}
+    local-dir: ${VMS_LOCAL_STORAGE_DIR:./.data/storage}
+  watermark:
+    ffmpeg-path: ${WATERMARK_FFMPEG_PATH:ffmpeg}
+    ffprobe-path: ${WATERMARK_FFPROBE_PATH:ffprobe}
+    logo-path: ${WATERMARK_LOGO_PATH:./assets/logo.png}
+    work-dir: ${WATERMARK_WORK_DIR:${java.io.tmpdir}/vms-watermark}
+    timeout: ${WATERMARK_TIMEOUT:PT3M}
+    max-attempts: ${WATERMARK_MAX_ATTEMPTS:4}
+    max-duration-sec: ${VMS_MAX_DURATION_SEC:120}
+    duration-tolerance-sec: ${VMS_DURATION_TOLERANCE_SEC:10}
+    max-input-bytes: ${VMS_MAX_UPLOAD_BYTES:104857600}
+    logo-width-ratio: 0.15
+    logo-opacity: 0.85
+    preset: veryfast
+    crf: 23
+    threads: 2

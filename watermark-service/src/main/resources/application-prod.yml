@@ -1,0 +1,8 @@
+logging:
+  structured:
+    format:
+      console: ecs
+
+vms:
+  storage:
+    provider: gcs
