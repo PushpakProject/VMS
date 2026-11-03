@@ -1,0 +1,11 @@
+# Production on GCP: GCS storage, structured JSON logs (Cloud Logging), secure cookies.
+logging:
+  structured:
+    format:
+      console: ecs
+
+vms:
+  auth:
+    cookie-secure: true
+  storage:
+    provider: gcs

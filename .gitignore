@@ -1,0 +1,26 @@
+# Secrets and local env
+.env
+.env.*
+!.env.example
+
+# Java / Maven
+target/
+*.class
+*.log
+hs_err_pid*
+
+# Node
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# Local runtime data
+.data/
+infra/.data/

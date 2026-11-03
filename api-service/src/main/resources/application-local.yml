@@ -1,0 +1,6 @@
+# Local development: filesystem storage emulator, plain-text logs, non-secure cookie (http://localhost).
+vms:
+  auth:
+    cookie-secure: ${VMS_COOKIE_SECURE:false}
+  storage:
+    provider: local
