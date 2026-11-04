@@ -8,6 +8,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.vms.api.common.observability.VmsMetrics;
 import com.vms.api.outbox.ProcessedEventRepository;
 import com.vms.api.storage.StoragePort;
 import com.vms.api.video.domain.FailureCode;
@@ -21,6 +22,7 @@ import com.vms.api.video.events.VideoEvents.Outcome;
 import com.vms.api.video.events.VideoEvents.WatermarkResult;
 import com.vms.api.video.infrastructure.ProcessingAttemptRepository;
 import com.vms.api.video.infrastructure.VideoRepository;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -45,7 +47,12 @@ class WatermarkResultHandlerTest {
   void setUp() {
     handler =
         new WatermarkResultHandler(
-            videos, attempts, processed, storage, Clock.fixed(NOW, ZoneOffset.UTC));
+            videos,
+            attempts,
+            processed,
+            storage,
+            new VmsMetrics(new SimpleMeterRegistry()),
+            Clock.fixed(NOW, ZoneOffset.UTC));
     video =
         Video.create(
             UUID.randomUUID(),

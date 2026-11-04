@@ -1,6 +1,7 @@
 package com.vms.api.storage.local;
 
 import com.vms.api.storage.StoragePort;
+import com.vms.api.storage.UploadProperties;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URLEncoder;
@@ -25,11 +26,13 @@ public class LocalStorageAdapter implements StoragePort {
   private final Path root;
   private final LocalUrlSigner signer;
   private final Clock clock;
+  private final LocalResumableSessions sessions;
 
   public LocalStorageAdapter(Path root, LocalUrlSigner signer, Clock clock) {
     this.root = root.toAbsolutePath().normalize();
     this.signer = signer;
     this.clock = clock;
+    this.sessions = new LocalResumableSessions(this.root, this::resolve, clock);
   }
 
   @Override
@@ -37,7 +40,27 @@ public class LocalStorageAdapter implements StoragePort {
       String key, String contentType, long maxBytes, Duration ttl) {
     SignedUrl signed = signedUrl("PUT", key, ttl, contentType, maxBytes);
     return new UploadTarget(
-        signed.url(), "PUT", Map.of("Content-Type", contentType), signed.expiresAt());
+        signed.url(),
+        "PUT",
+        Map.of("Content-Type", contentType),
+        signed.expiresAt(),
+        UploadProperties.Protocol.SIMPLE);
+  }
+
+  @Override
+  public UploadTarget createResumableUpload(
+      String key, String contentType, long sizeBytes, Duration sessionTtl) {
+    String url = sessions.open(key, contentType, sizeBytes, sessionTtl);
+    return new UploadTarget(
+        url,
+        "PUT",
+        Map.of(),
+        clock.instant().plus(sessionTtl),
+        UploadProperties.Protocol.RESUMABLE);
+  }
+
+  public LocalResumableSessions sessions() {
+    return sessions;
   }
 
   @Override

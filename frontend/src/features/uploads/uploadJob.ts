@@ -16,10 +16,13 @@ export type UploadState =
   | 'FAILED';
 
 export interface UploadTarget {
+  /** SIMPLE: one signed PUT. RESUMABLE: storage session URL that accepts Content-Range pieces. */
+  protocol?: 'SIMPLE' | 'RESUMABLE';
   url: string;
   method: string;
   headers: Record<string, string>;
   expiresAt: string;
+  chunkSizeBytes?: number | null;
 }
 
 export interface UploadJob {

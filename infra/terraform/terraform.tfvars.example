@@ -1,0 +1,6 @@
+# cp terraform.tfvars.example terraform.tfvars   (terraform.tfvars is gitignored)
+project_id        = "my-gcp-project-id"
+letsencrypt_email = "me@example.com"
+# region          = "us-central1"
+# zone            = "us-central1-a"
+# google_client_id = ""   # optional, for Google Sign-In

@@ -24,3 +24,10 @@ coverage/
 # Local runtime data
 .data/
 infra/.data/
+
+# Terraform
+infra/terraform/.terraform/
+infra/terraform/*.tfstate*
+infra/terraform/terraform.tfvars
+infra/terraform/.terraform.lock.hcl.bak
+infra/.deploy.env

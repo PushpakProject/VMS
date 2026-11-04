@@ -69,6 +69,12 @@ export function retryVideo(api: ApiClient, id: string): Promise<Video> {
   return api.request(`/api/v1/videos/${encodeURIComponent(id)}/retry`, { method: 'POST' });
 }
 
+export function reprocessVideo(api: ApiClient, id: string): Promise<Video> {
+  return api.request(`/api/v1/admin/videos/${encodeURIComponent(id)}/reprocess`, {
+    method: 'POST',
+  });
+}
+
 export function deleteVideo(api: ApiClient, id: string): Promise<void> {
   return api.request(`/api/v1/videos/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }

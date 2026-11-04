@@ -15,11 +15,13 @@ import com.vms.api.common.config.KafkaTopicsProperties;
 import com.vms.api.common.config.RecordingProperties;
 import com.vms.api.common.error.ApiException;
 import com.vms.api.common.error.ErrorCode;
+import com.vms.api.common.observability.VmsMetrics;
 import com.vms.api.common.security.CurrentUser;
 import com.vms.api.outbox.OutboxService;
 import com.vms.api.storage.StoragePort;
 import com.vms.api.storage.StoragePort.ObjectStat;
 import com.vms.api.storage.StoragePort.UploadTarget;
+import com.vms.api.storage.UploadProperties;
 import com.vms.api.video.application.VideoService.InitiateUpload;
 import com.vms.api.video.domain.FailureCode;
 import com.vms.api.video.domain.TrackingId;
@@ -28,6 +30,7 @@ import com.vms.api.video.domain.VideoStatus;
 import com.vms.api.video.events.VideoEvents;
 import com.vms.api.video.infrastructure.ProcessingAttemptRepository;
 import com.vms.api.video.infrastructure.VideoRepository;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -72,10 +75,24 @@ class VideoServiceTest {
         new KafkaTopicsProperties("video.uploaded.v1", "video.watermark.result.v1", 3, (short) 1);
     service =
         new VideoService(
-            videos, attempts, storage, outbox, recording, topics, Clock.fixed(NOW, ZoneOffset.UTC));
+            videos,
+            attempts,
+            storage,
+            outbox,
+            recording,
+            topics,
+            new VmsMetrics(new SimpleMeterRegistry()),
+            new UploadProperties(UploadProperties.Protocol.SIMPLE, null, null),
+            Clock.fixed(NOW, ZoneOffset.UTC));
     when(videos.save(any(Video.class))).thenAnswer(inv -> inv.getArgument(0));
     when(storage.createUploadTarget(anyString(), anyString(), anyLong(), any()))
-        .thenReturn(new UploadTarget("https://signed", "PUT", Map.of(), NOW.plusSeconds(900)));
+        .thenReturn(
+            new UploadTarget(
+                "https://signed",
+                "PUT",
+                Map.of(),
+                NOW.plusSeconds(900),
+                UploadProperties.Protocol.SIMPLE));
   }
 
   private Video uploadingVideo() {
@@ -238,6 +255,31 @@ class VideoServiceTest {
         .thenReturn(Optional.of(new ObjectStat(4_000, "video/webm")));
     Video retried = service.retry(admin, video.getId(), true);
     assertThat(retried.getStatus()).isEqualTo(VideoStatus.UPLOADED);
+  }
+
+  @Test
+  void reconcilerRecoversUploadsWhoseCompleteCallWasLost() {
+    Video video = uploadingVideo();
+    when(storage.stat(video.getRawObjectKey()))
+        .thenReturn(Optional.of(new ObjectStat(4_000, "video/webm")));
+
+    var outcome = service.reconcile(video.getId(), Duration.ofDays(7));
+
+    assertThat(outcome).isEqualTo(VideoService.ReconcileOutcome.RECOVERED);
+    assertThat(video.getStatus()).isEqualTo(VideoStatus.UPLOADED);
+    verify(outbox).append(any(), eq(video.getId()), any(), any(), any());
+  }
+
+  @Test
+  void reconcilerAbandonsRegistrationsWithoutObjectOnlyAfterTheGracePeriod() {
+    Video video = uploadingVideo();
+    when(storage.stat(video.getRawObjectKey())).thenReturn(Optional.empty());
+
+    assertThat(service.reconcile(video.getId(), Duration.ofDays(7)))
+        .isEqualTo(VideoService.ReconcileOutcome.WAITING);
+    assertThat(service.reconcile(video.getId(), Duration.ofSeconds(-1)))
+        .isEqualTo(VideoService.ReconcileOutcome.ABANDONED);
+    assertThat(video.getStatus()).isEqualTo(VideoStatus.ABANDONED);
   }
 
   @Test

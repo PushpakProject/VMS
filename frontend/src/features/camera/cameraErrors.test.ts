@@ -20,4 +20,11 @@ describe('toCameraError', () => {
       'No camera connected.',
     );
   });
+
+  it('recognises a macOS system-level block (Chrome: "Permission denied by system")', () => {
+    const error = toCameraError(new DOMException('Permission denied by system', 'NotAllowedError'));
+    expect(error.kind).toBe('SYSTEM_BLOCKED');
+    expect(error.hint).toContain('Privacy & Security');
+    expect(error.detail).toBe('NotAllowedError');
+  });
 });

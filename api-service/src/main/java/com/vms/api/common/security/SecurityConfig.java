@@ -55,9 +55,11 @@ public class SecurityConfig {
                         "/api/v1/config/public",
                         "/api/v1/ping",
                         "/actuator/health",
-                        "/actuator/health/**")
+                        "/actuator/health/**",
+                        // Internal network only: nginx returns 404 for /actuator/**.
+                        "/actuator/prometheus")
                     .permitAll()
-                    .requestMatchers("/api/v1/local-storage/**")
+                    .requestMatchers("/api/v1/local-storage/**", "/error")
                     .permitAll()
                     .requestMatchers("/api/v1/admin/**")
                     .hasRole("ADMIN")
@@ -96,15 +98,16 @@ public class SecurityConfig {
   private static CorsConfigurationSource corsSource(List<String> allowedOrigins) {
     CorsConfiguration config = new CorsConfiguration();
     config.setAllowedOrigins(allowedOrigins);
-    config.setAllowedMethods(List.of("GET", "POST", "DELETE", "OPTIONS"));
+    config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
     config.setAllowedHeaders(
         List.of(
             "Authorization",
             "Content-Type",
+            "Content-Range",
             "Idempotency-Key",
             "X-Request-Id",
             "X-Requested-With"));
-    config.setExposedHeaders(List.of("X-Request-Id"));
+    config.setExposedHeaders(List.of("X-Request-Id", "Range"));
     config.setAllowCredentials(true);
     config.setMaxAge(3600L);
     UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

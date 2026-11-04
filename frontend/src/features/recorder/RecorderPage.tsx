@@ -104,6 +104,7 @@ export function RecorderPage() {
         {media.error && (
           <div className="alert alert-error" role="alert">
             <strong>{media.error.message}</strong> {media.error.hint}
+            {media.error.detail && <span className="small muted">({media.error.detail})</span>}
             <button className="btn btn-small" onClick={media.retry}>
               Retry
             </button>

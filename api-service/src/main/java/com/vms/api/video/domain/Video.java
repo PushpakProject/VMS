@@ -141,6 +141,11 @@ public class Video {
     this.processingRun++;
   }
 
+  /** No object ever arrived for this registration. */
+  public void markAbandoned(Instant now) {
+    transitionTo(VideoStatus.ABANDONED, now);
+  }
+
   public void softDelete(Instant now) {
     this.deletedAt = now;
     this.updatedAt = now;

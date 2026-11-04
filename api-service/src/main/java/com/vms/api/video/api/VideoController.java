@@ -6,6 +6,7 @@ import com.vms.api.common.security.CurrentUser;
 import com.vms.api.common.web.PageResponse;
 import com.vms.api.storage.StoragePort.SignedUrl;
 import com.vms.api.storage.StoragePort.UploadTarget;
+import com.vms.api.storage.UploadProperties;
 import com.vms.api.video.api.VideoDtos.CompleteUploadRequest;
 import com.vms.api.video.api.VideoDtos.InitiateUploadRequest;
 import com.vms.api.video.api.VideoDtos.InitiateUploadResponse;
@@ -44,9 +45,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class VideoController {
 
   private final VideoService videoService;
+  private final UploadProperties uploadProperties;
 
-  public VideoController(VideoService videoService) {
+  public VideoController(VideoService videoService, UploadProperties uploadProperties) {
     this.videoService = videoService;
+    this.uploadProperties = uploadProperties;
   }
 
   @PostMapping("/videos")
@@ -68,7 +71,14 @@ public class VideoController {
         target == null
             ? null
             : new UploadInstruction(
-                "SIMPLE", target.url(), target.method(), target.headers(), target.expiresAt());
+                target.protocol().name(),
+                target.url(),
+                target.method(),
+                target.headers(),
+                target.expiresAt(),
+                target.protocol() == UploadProperties.Protocol.RESUMABLE
+                    ? uploadProperties.chunkSizeBytes()
+                    : null);
     return ResponseEntity.status(HttpStatus.CREATED)
         .body(
             new InitiateUploadResponse(

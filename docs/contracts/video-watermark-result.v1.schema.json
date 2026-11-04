@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vms.example/contracts/video-watermark-result.v1.schema.json",
+  "title": "video.watermark.result.v1",
+  "description": "Published by watermark-service for every attempt. Kafka key = payload.videoId.",
+  "type": "object",
+  "required": ["eventId", "eventType", "version", "occurredAt", "payload"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "eventType": { "const": "WATERMARK_RESULT" },
+    "version": { "const": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "correlationId": { "type": ["string", "null"] },
+    "payload": {
+      "type": "object",
+      "required": ["videoId", "run", "attempt", "outcome"],
+      "properties": {
+        "videoId": { "type": "string", "format": "uuid" },
+        "run": { "type": "integer", "minimum": 1 },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "outcome": { "enum": ["STARTED", "RETRYING", "COMPLETED", "FAILED"] },
+        "finalObjectKey": { "type": ["string", "null"] },
+        "finalSizeBytes": { "type": ["integer", "null"] },
+        "durationMs": { "type": ["integer", "null"] },
+        "errorCode": { "enum": [null, "TOO_LARGE", "TOO_LONG", "CORRUPT_INPUT", "UNSUPPORTED_FORMAT", "PROCESSING_FAILED"] },
+        "errorMessage": { "type": ["string", "null"], "description": "Exception class only; never raw details." }
+      }
+    }
+  }
+}

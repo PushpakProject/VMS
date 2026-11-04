@@ -1,6 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useServices } from '../../app/ServicesContext';
+import { useAuth } from '../auth/AuthContext';
 import { StatusBadge } from '../../components/StatusBadge';
 import { messageOf } from '../../lib/errors';
 import { formatDuration } from '../recorder/recorderMachine';
@@ -9,9 +10,11 @@ import {
   deleteVideo,
   getPlaybackUrl,
   listVideos,
+  reprocessVideo,
   retryVideo,
   type Video,
 } from './videosApi';
+import { VideoDetails } from './VideoDetails';
 
 const STATUSES = ['', 'UPLOADING', 'UPLOADED', 'PROCESSING', 'READY', 'FAILED', 'ABANDONED'];
 const TRACKING_FILTER = /^[A-Za-z0-9_-]{0,64}$/;
@@ -27,7 +30,10 @@ function useDebounced<T>(value: T, delayMs: number): T {
 
 export function VideosPage() {
   const { api } = useServices();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
   const queryClient = useQueryClient();
+  const [detailsId, setDetailsId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [trackingInput, setTrackingInput] = useState('');
   const [status, setStatus] = useState('');
@@ -47,6 +53,11 @@ export function VideosPage() {
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['videos'] });
   const retry = useMutation({
     mutationFn: (id: string) => retryVideo(api, id),
+    onSuccess: invalidate,
+    onError: (e) => setActionError(messageOf(e)),
+  });
+  const reprocess = useMutation({
+    mutationFn: (id: string) => reprocessVideo(api, id),
     onSuccess: invalidate,
     onError: (e) => setActionError(messageOf(e)),
   });
@@ -161,6 +172,18 @@ export function VideosPage() {
                         Retry
                       </button>
                     )}
+                    {isAdmin && video.status === 'FAILED' && (
+                      <button
+                        className="btn btn-small"
+                        disabled={reprocess.isPending}
+                        onClick={() => reprocess.mutate(video.id)}
+                      >
+                        Reprocess
+                      </button>
+                    )}
+                    <button className="btn btn-small" onClick={() => setDetailsId(video.id)}>
+                      Details
+                    </button>
                     <button
                       className="btn btn-small btn-danger"
                       disabled={remove.isPending}
@@ -201,6 +224,8 @@ export function VideosPage() {
           </div>
         )}
       </section>
+
+      {detailsId && <VideoDetails videoId={detailsId} onClose={() => setDetailsId(null)} />}
 
       {player && (
         <div className="modal" role="dialog" aria-label={`Video ${player.trackingId}`}>

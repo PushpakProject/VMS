@@ -7,5 +7,7 @@ logging:
 vms:
   auth:
     cookie-secure: true
+    # Reviewer accounts are provisioned; public sign-up stays off unless explicitly enabled.
+    registration-enabled: ${VMS_REGISTRATION_ENABLED:false}
   storage:
     provider: gcs

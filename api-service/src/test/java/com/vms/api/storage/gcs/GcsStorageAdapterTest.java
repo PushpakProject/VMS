@@ -38,7 +38,14 @@ class GcsStorageAdapterTest {
             .getService();
     Instant now = Instant.parse("2026-11-03T10:00:00Z");
     GcsStorageAdapter adapter =
-        new GcsStorageAdapter(storage, "vms-bucket", Clock.fixed(now, ZoneOffset.UTC));
+        new GcsStorageAdapter(
+            storage,
+            "vms-bucket",
+            Clock.fixed(now, ZoneOffset.UTC),
+            (url, headers) -> {
+              throw new AssertionError("not used");
+            },
+            "https://app.example");
 
     UploadTarget target =
         adapter.createUploadTarget(
@@ -54,5 +61,52 @@ class GcsStorageAdapterTest {
         .containsEntry("Content-Type", "video/webm")
         .containsEntry("x-goog-content-length-range", "0,104857600");
     assertThat(target.expiresAt()).isEqualTo(now.plusSeconds(900));
+  }
+
+  @Test
+  void resumableSessionIsOpenedServerSideWithDeclaredSizeAndOrigin() throws Exception {
+    KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+    generator.initialize(2048);
+    ServiceAccountCredentials credentials =
+        ServiceAccountCredentials.newBuilder()
+            .setClientEmail("signer@test-project.iam.gserviceaccount.com")
+            .setPrivateKey((RSAPrivateKey) generator.generateKeyPair().getPrivate())
+            .setProjectId("test-project")
+            .build();
+    Storage storage =
+        StorageOptions.newBuilder()
+            .setProjectId("test-project")
+            .setCredentials(credentials)
+            .build()
+            .getService();
+    Instant now = Instant.parse("2026-11-03T10:00:00Z");
+    java.util.concurrent.atomic.AtomicReference<java.util.Map<String, String>> sent =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    java.util.concurrent.atomic.AtomicReference<java.net.URI> initUrl =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    GcsStorageAdapter adapter =
+        new GcsStorageAdapter(
+            storage,
+            "vms-bucket",
+            Clock.fixed(now, ZoneOffset.UTC),
+            (url, headers) -> {
+              initUrl.set(url);
+              sent.set(headers);
+              return "https://storage.googleapis.com/upload/session-123";
+            },
+            "https://app.example");
+
+    UploadTarget target =
+        adapter.createResumableUpload("raw/u/v.webm", "video/webm", 41_000_000, Duration.ofDays(6));
+
+    String signed = URLDecoder.decode(initUrl.get().toString(), StandardCharsets.UTF_8);
+    assertThat(signed).contains("X-Goog-SignedHeaders=content-type;host;x-goog-resumable");
+    assertThat(sent.get())
+        .containsEntry("x-goog-resumable", "start")
+        .containsEntry("X-Upload-Content-Length", "41000000")
+        .containsEntry("Origin", "https://app.example");
+    assertThat(target.url()).isEqualTo("https://storage.googleapis.com/upload/session-123");
+    assertThat(target.protocol().name()).isEqualTo("RESUMABLE");
+    assertThat(target.headers()).isEmpty();
   }
 }

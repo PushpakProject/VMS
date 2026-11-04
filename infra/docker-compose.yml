@@ -1,0 +1,102 @@
+# Local end-to-end stack: everything runs on this machine with the local storage emulator.
+#   cp .env.example infra/.env   (then fill in the values)
+#   docker compose -f infra/docker-compose.yml --env-file infra/.env up --build
+#   open http://localhost:8088
+name: vms-local
+
+services:
+  postgres:
+    image: postgres:16.15-alpine
+    environment:
+      POSTGRES_DB: vms
+      POSTGRES_USER: vms
+      POSTGRES_PASSWORD: ${VMS_DB_PASSWORD:?set VMS_DB_PASSWORD in infra/.env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vms -d vms"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  kafka:
+    image: apache/kafka:4.2.2
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_HEAP_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - kafkadata:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    build: ../api-service
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      VMS_DB_URL: jdbc:postgresql://postgres:5432/vms
+      VMS_DB_USER: vms
+      VMS_DB_PASSWORD: ${VMS_DB_PASSWORD}
+      VMS_KAFKA_BOOTSTRAP: kafka:9092
+      VMS_JWT_SECRET: ${VMS_JWT_SECRET:?set VMS_JWT_SECRET in infra/.env}
+      VMS_CORS_ALLOWED_ORIGINS: http://localhost:8088
+      VMS_COOKIE_SECURE: "false"
+      VMS_STORAGE_PROVIDER: local
+      VMS_LOCAL_STORAGE_DIR: /data/storage
+      VMS_LOCAL_SIGNING_KEY: ${VMS_LOCAL_SIGNING_KEY:?set VMS_LOCAL_SIGNING_KEY in infra/.env}
+      VMS_GOOGLE_CLIENT_ID: ${VMS_GOOGLE_CLIENT_ID:-}
+      VMS_DEMO_USER_EMAIL: ${VMS_DEMO_USER_EMAIL:-}
+      VMS_DEMO_USER_PASSWORD: ${VMS_DEMO_USER_PASSWORD:-}
+      VMS_DEMO_ADMIN_EMAIL: ${VMS_DEMO_ADMIN_EMAIL:-}
+      VMS_DEMO_ADMIN_PASSWORD: ${VMS_DEMO_ADMIN_PASSWORD:-}
+    volumes:
+      - storage:/data/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  watermark:
+    build: ../watermark-service
+    environment:
+      VMS_KAFKA_BOOTSTRAP: kafka:9092
+      VMS_STORAGE_PROVIDER: local
+      VMS_LOCAL_STORAGE_DIR: /data/storage
+    volumes:
+      - storage:/data/storage
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build: ../frontend
+    ports:
+      - "8088:80"
+    volumes:
+      - ./nginx/local.conf.template:/etc/nginx/templates/default.conf.template:ro
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  kafkadata:
+  storage:

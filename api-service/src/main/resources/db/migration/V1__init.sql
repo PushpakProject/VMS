@@ -19,7 +19,7 @@ create table users (
 create table refresh_tokens (
     id            uuid primary key,
     user_id       uuid        not null references users (id) on delete cascade,
-    token_hash    char(64)    not null unique,
+    token_hash    varchar(64) not null unique,
     family_id     uuid        not null,
     expires_at    timestamptz not null,
     revoked_at    timestamptz,

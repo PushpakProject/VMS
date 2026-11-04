@@ -1,6 +1,7 @@
 export type CameraErrorKind =
   | 'NO_CAMERA'
   | 'PERMISSION_DENIED'
+  | 'SYSTEM_BLOCKED'
   | 'CAMERA_BUSY'
   | 'INSECURE_CONTEXT'
   | 'DISCONNECTED'
@@ -10,6 +11,8 @@ export interface CameraError {
   kind: CameraErrorKind;
   message: string;
   hint: string;
+  /** Browser error name, shown small for troubleshooting (e.g. NotAllowedError). */
+  detail?: string;
 }
 
 const MESSAGES: Record<CameraErrorKind, Omit<CameraError, 'kind'>> = {
@@ -20,6 +23,10 @@ const MESSAGES: Record<CameraErrorKind, Omit<CameraError, 'kind'>> = {
   PERMISSION_DENIED: {
     message: 'Camera access was blocked.',
     hint: 'Click the camera icon in the address bar, allow access, then press Retry.',
+  },
+  SYSTEM_BLOCKED: {
+    message: 'Your operating system is blocking the camera for this browser.',
+    hint: 'macOS: System Settings → Privacy & Security → Camera → turn on your browser, then quit and reopen the browser. Windows: Settings → Privacy → Camera.',
   },
   CAMERA_BUSY: {
     message: 'The camera is in use by another application.',
@@ -45,7 +52,21 @@ export function cameraError(kind: CameraErrorKind): CameraError {
 
 /** Maps getUserMedia DOMExceptions to specific, actionable messages. */
 export function toCameraError(error: unknown): CameraError {
-  const name = error instanceof DOMException || error instanceof Error ? error.name : '';
+  // DOMException is not an Error subclass in every environment: read fields structurally.
+  const { name: rawName, message: rawMessage } = (error ?? {}) as {
+    name?: unknown;
+    message?: unknown;
+  };
+  const name = typeof rawName === 'string' ? rawName : '';
+  const text = typeof rawMessage === 'string' ? rawMessage.toLowerCase() : '';
+  return { ...classify(name, text), detail: name || undefined };
+}
+
+function classify(name: string, text: string): CameraError {
+  // Chrome on macOS reports an OS-level block as "Permission denied by system".
+  if (text.includes('by system') || text.includes('system denied')) {
+    return cameraError('SYSTEM_BLOCKED');
+  }
   switch (name) {
     case 'NotFoundError':
     case 'OverconstrainedError':

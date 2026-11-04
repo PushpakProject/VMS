@@ -11,8 +11,10 @@ import com.vms.watermark.messaging.WatermarkEvents.Envelope;
 import com.vms.watermark.messaging.WatermarkEvents.Outcome;
 import com.vms.watermark.messaging.WatermarkEvents.VideoUploaded;
 import com.vms.watermark.messaging.WatermarkEvents.WatermarkResult;
+import com.vms.watermark.observability.WatermarkMetrics;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.header.Header;
 import org.slf4j.Logger;
@@ -48,16 +50,19 @@ public class VideoUploadedListener {
   private final WatermarkResultPublisher publisher;
   private final WatermarkProperties properties;
   private final JsonMapper jsonMapper;
+  private final WatermarkMetrics metrics;
 
   public VideoUploadedListener(
       WatermarkJob job,
       WatermarkResultPublisher publisher,
       WatermarkProperties properties,
-      JsonMapper jsonMapper) {
+      JsonMapper jsonMapper,
+      WatermarkMetrics metrics) {
     this.job = job;
     this.publisher = publisher;
     this.properties = properties;
     this.jsonMapper = jsonMapper;
+    this.metrics = metrics;
   }
 
   @RetryableTopic(
@@ -78,6 +83,7 @@ public class VideoUploadedListener {
     MDC.put(CORRELATION_MDC, correlationId == null ? "" : correlationId);
     try {
       publisher.publish(result(payload, attempt, Outcome.STARTED, null, null), correlationId);
+      long started = System.nanoTime();
       JobResult done =
           job.execute(
               new JobRequest(
@@ -86,6 +92,7 @@ public class VideoUploadedListener {
                   payload.rawObjectKey(),
                   payload.finalObjectKey(),
                   payload.contentType()));
+      metrics.completed(Duration.ofNanos(System.nanoTime() - started), done.alreadyDone());
       publisher.publish(
           new WatermarkResult(
               payload.videoId(),
@@ -100,6 +107,7 @@ public class VideoUploadedListener {
           correlationId);
     } catch (NonRetryableProcessingException ex) {
       log.warn("Video {} failed permanently: {}", payload.videoId(), ex.code());
+      metrics.failed(ex.code().name());
       publisher.publish(result(payload, attempt, Outcome.FAILED, ex.code(), ex), correlationId);
       throw ex;
     } catch (RuntimeException ex) {
@@ -112,6 +120,11 @@ public class VideoUploadedListener {
           attempt,
           properties.maxAttempts(),
           ex.getMessage());
+      if (lastAttempt) {
+        metrics.failed(code.name());
+      } else {
+        metrics.retrying(code.name());
+      }
       publisher.publish(
           result(payload, attempt, lastAttempt ? Outcome.FAILED : Outcome.RETRYING, code, ex),
           correlationId);
@@ -124,6 +137,7 @@ public class VideoUploadedListener {
   /** Parked messages stay on the DLT for investigation; the FAILED result was already published. */
   @DltHandler
   public void onDeadLetter(ConsumerRecord<String, String> record) {
+    metrics.deadLettered();
     log.error(
         "Message parked on {} (partition {}, offset {}) for key {}",
         record.topic(),

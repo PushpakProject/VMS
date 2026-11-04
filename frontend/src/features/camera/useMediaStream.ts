@@ -38,25 +38,11 @@ export function useMediaStream({ deviceId, hasDevices, width, height }: Options)
         setError(cameraError('INSECURE_CONTEXT'));
         return;
       }
-      if (!hasDevices) {
-        setStream(null);
-        setError(cameraError('NO_CAMERA'));
-        return;
-      }
+      // Always ask the browser: Safari (and Chrome before permission) list no cameras until
+      // getUserMedia has been granted, so an empty device list must not stop us from asking.
       setStarting(true);
-      const video: MediaTrackConstraints = {
-        width: { ideal: width },
-        height: { ideal: height },
-        frameRate: { ideal: 30 },
-        ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
-      };
       try {
-        let media: MediaStream;
-        try {
-          media = await navigator.mediaDevices.getUserMedia({ video, audio: true });
-        } catch {
-          media = await navigator.mediaDevices.getUserMedia({ video, audio: false });
-        }
+        const media = await openCamera(deviceId, width, height);
         if (cancelled) {
           media.getTracks().forEach((track) => track.stop());
           return;
@@ -87,6 +73,7 @@ export function useMediaStream({ deviceId, hasDevices, width, height }: Options)
     return () => {
       cancelled = true;
     };
+    // hasDevices: re-try when a camera is plugged in after an error.
   }, [deviceId, hasDevices, width, height, attempt]);
 
   useEffect(
@@ -99,4 +86,32 @@ export function useMediaStream({ deviceId, hasDevices, width, height }: Options)
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
   return { stream, error, starting, retry };
+}
+
+/**
+ * Tries the chosen camera with and without microphone, then any camera: a remembered camera that
+ * is no longer present is reported by browsers as OverconstrainedError / NotFoundError.
+ */
+async function openCamera(
+  deviceId: string | null,
+  width: number,
+  height: number,
+): Promise<MediaStream> {
+  const base: MediaTrackConstraints = {
+    width: { ideal: width },
+    height: { ideal: height },
+    frameRate: { ideal: 30 },
+  };
+  const videos = deviceId ? [{ ...base, deviceId: { exact: deviceId } }, base] : [base];
+  let lastError: unknown = new DOMException('No camera', 'NotFoundError');
+  for (const video of videos) {
+    for (const audio of [true, false]) {
+      try {
+        return await navigator.mediaDevices.getUserMedia({ video, audio });
+      } catch (error) {
+        lastError = error;
+      }
+    }
+  }
+  throw lastError;
 }
