@@ -138,9 +138,3 @@ Each decision has a one-page ADR in [docs/adr](docs/adr).
 - Testcontainers integration tests.
 - Playwright end-to-end tests with a fake camera.
 - Remote Terraform state in GCS for team use.
-
-## AI assistance
-
-I designed the architecture, the requirements breakdown and the trade-offs, and implemented the
-solution with the help of an AI coding assistant (Devin). I reviewed every change, and the commits
-carry a co-author trailer. I can walk through and justify any part of the design or code.
