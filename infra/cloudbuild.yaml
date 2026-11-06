@@ -1,0 +1,25 @@
+# Builds and pushes the three images (linux/amd64) tagged with the git SHA.
+steps:
+  - id: api
+    name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "${_REGISTRY}/api-service:${_TAG}", "api-service"]
+    env: ["DOCKER_BUILDKIT=1"]
+  - id: watermark
+    name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "${_REGISTRY}/watermark-service:${_TAG}", "watermark-service"]
+    env: ["DOCKER_BUILDKIT=1"]
+    waitFor: ["-"]
+  - id: web
+    name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "${_REGISTRY}/web:${_TAG}", "frontend"]
+    env: ["DOCKER_BUILDKIT=1"]
+    waitFor: ["-"]
+images:
+  - "${_REGISTRY}/api-service:${_TAG}"
+  - "${_REGISTRY}/watermark-service:${_TAG}"
+  - "${_REGISTRY}/web:${_TAG}"
+options:
+  machineType: E2_HIGHCPU_8
+  # Required when building with a user-managed service account.
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1800s

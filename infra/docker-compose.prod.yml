@@ -1,0 +1,130 @@
+# Production stack on the GCE VM (deployed by infra/scripts/deploy.sh into /opt/vms).
+# Secrets come from /opt/vms/.env, written by fetch-secrets.sh from Secret Manager.
+name: vms
+
+x-logging: &cloud-logging
+  driver: gcplogs
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  postgres:
+    <<: *restart
+    image: postgres:16.15-alpine
+    environment:
+      POSTGRES_DB: vms
+      POSTGRES_USER: vms
+      POSTGRES_PASSWORD: ${VMS_DB_PASSWORD:?missing}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vms -d vms"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 512m
+    logging: *cloud-logging
+
+  kafka:
+    <<: *restart
+    image: apache/kafka:4.2.2
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_LOG_RETENTION_HOURS: 168
+      # Must point at the volume: the image default (/tmp/kafka-logs) is lost on container recreate.
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_HEAP_OPTS: "-Xms768m -Xmx768m"
+    volumes:
+      - kafkadata:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+    mem_limit: 1g
+    logging: *cloud-logging
+
+  api:
+    <<: *restart
+    image: ${REGISTRY:?missing}/api-service:${IMAGE_TAG:?missing}
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      VMS_DB_URL: jdbc:postgresql://postgres:5432/vms
+      # Single size-capped signed PUT per clip. GCS resumable-session responses carry no CORS
+      # headers, so browsers can't read them (see docs/07-Issues-and-Fixes in docs/hi).
+      VMS_UPLOAD_PROTOCOL: SIMPLE
+      VMS_DB_USER: vms
+      VMS_DB_PASSWORD: ${VMS_DB_PASSWORD}
+      VMS_KAFKA_BOOTSTRAP: kafka:9092
+      VMS_JWT_SECRET: ${VMS_JWT_SECRET:?missing}
+      VMS_CORS_ALLOWED_ORIGINS: https://${PUBLIC_HOST:?missing}
+      VMS_GCS_BUCKET: ${VMS_GCS_BUCKET:?missing}
+      VMS_GOOGLE_CLIENT_ID: ${VMS_GOOGLE_CLIENT_ID:-}
+      VMS_DEMO_USER_EMAIL: ${VMS_DEMO_USER_EMAIL:-}
+      VMS_DEMO_USER_PASSWORD: ${VMS_DEMO_USER_PASSWORD:-}
+      VMS_DEMO_ADMIN_EMAIL: ${VMS_DEMO_ADMIN_EMAIL:-}
+      VMS_DEMO_ADMIN_PASSWORD: ${VMS_DEMO_ADMIN_PASSWORD:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    mem_limit: 768m
+    logging: *cloud-logging
+
+  watermark:
+    <<: *restart
+    image: ${REGISTRY}/watermark-service:${IMAGE_TAG}
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      VMS_KAFKA_BOOTSTRAP: kafka:9092
+      VMS_GCS_BUCKET: ${VMS_GCS_BUCKET}
+    tmpfs:
+      - /tmp/vms-watermark:size=600m,uid=10001,gid=10001
+    depends_on:
+      kafka:
+        condition: service_healthy
+    mem_limit: 1536m
+    logging: *cloud-logging
+
+  web:
+    <<: *restart
+    image: ${REGISTRY}/web:${IMAGE_TAG}
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/prod.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - letsencrypt:/etc/letsencrypt:ro
+      - certbot-www:/var/www/certbot:ro
+    depends_on:
+      - api
+    mem_limit: 128m
+    logging: *cloud-logging
+
+  certbot:
+    image: certbot/certbot:v5.8.0
+    profiles: ["tools"]
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+
+volumes:
+  pgdata:
+  kafkadata:
+  letsencrypt:
+  certbot-www:

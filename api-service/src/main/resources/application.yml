@@ -34,9 +34,15 @@ spring:
   servlet:
     multipart:
       enabled: false
+  mvc:
+    formcontent:
+      filter:
+        # JSON-only API: never consume PUT bodies as form parameters (upload pieces are binary).
+        enabled: false
 
 server:
   port: ${PORT:8080}
+  address: 0.0.0.0
   shutdown: graceful
   forward-headers-strategy: framework
   error:
@@ -47,7 +53,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,prometheus
   endpoint:
     health:
       probes:
@@ -84,6 +90,10 @@ vms:
     video-height: ${VMS_VIDEO_HEIGHT:720}
     upload-url-ttl: ${VMS_UPLOAD_URL_TTL:PT15M}
     playback-url-ttl: ${VMS_PLAYBACK_URL_TTL:PT5M}
+  upload:
+    protocol: ${VMS_UPLOAD_PROTOCOL:RESUMABLE}
+    chunk-size-bytes: ${VMS_UPLOAD_CHUNK_BYTES:4194304}
+    session-ttl: P6D
   storage:
     provider: ${VMS_STORAGE_PROVIDER:local}
     bucket: ${VMS_GCS_BUCKET:}
@@ -94,6 +104,10 @@ vms:
     watermark-result-topic: video.watermark.result.v1
     partitions: ${VMS_KAFKA_PARTITIONS:3}
     replication-factor: ${VMS_KAFKA_REPLICATION_FACTOR:1}
+  reconciler:
+    stale-after: ${VMS_RECONCILER_STALE_AFTER:PT30M}
+    abandon-after: ${VMS_ABANDON_AFTER:P7D}
+    interval: PT5M
   demo:
     user-email: ${VMS_DEMO_USER_EMAIL:}
     user-password: ${VMS_DEMO_USER_PASSWORD:}

@@ -4,7 +4,7 @@ import { ExponentialBackoff } from '../lib/retryPolicy';
 import { ConnectivityMonitor } from '../features/connectivity/connectivityMonitor';
 import { UploadJobRepository } from '../features/uploads/uploadJobRepository';
 import { UploadQueue } from '../features/uploads/uploadQueue';
-import { SignedPutTransport } from '../features/uploads/uploadTransport';
+import { ProtocolRoutingTransport } from '../features/uploads/resumableTransport';
 import { createUploadsApi } from '../features/uploads/uploadsApi';
 
 export interface Services {
@@ -45,7 +45,7 @@ export function getServices(): Promise<Services> {
       const queue = new UploadQueue({
         repo: new UploadJobRepository(db),
         api: createUploadsApi(apiClient),
-        transport: new SignedPutTransport(),
+        transport: new ProtocolRoutingTransport(),
         connectivity,
         retryPolicy: new ExponentialBackoff(),
       });

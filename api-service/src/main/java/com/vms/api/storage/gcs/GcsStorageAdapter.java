@@ -10,9 +10,12 @@ import com.google.cloud.storage.StorageException;
 import com.vms.api.common.error.ApiException;
 import com.vms.api.common.error.ErrorCode;
 import com.vms.api.storage.StoragePort;
+import com.vms.api.storage.UploadProperties;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -25,14 +28,29 @@ public class GcsStorageAdapter implements StoragePort {
 
   static final String SIZE_RANGE_HEADER = "x-goog-content-length-range";
 
+  private static final Duration INIT_URL_TTL = Duration.ofMinutes(5);
+
   private final Storage storage;
   private final String bucket;
   private final Clock clock;
+  private final ResumableSessionStarter sessionStarter;
+  private final String browserOrigin;
 
-  public GcsStorageAdapter(Storage storage, String bucket, Clock clock) {
+  /**
+   * @param browserOrigin sent as {@code Origin} when opening resumable sessions: GCS applies the
+   *     bucket CORS rules for that origin to the browser's later PUTs on the session URI
+   */
+  public GcsStorageAdapter(
+      Storage storage,
+      String bucket,
+      Clock clock,
+      ResumableSessionStarter sessionStarter,
+      String browserOrigin) {
     this.storage = storage;
     this.bucket = bucket;
     this.clock = clock;
+    this.sessionStarter = sessionStarter;
+    this.browserOrigin = browserOrigin;
   }
 
   @Override
@@ -47,7 +65,47 @@ public class GcsStorageAdapter implements StoragePort {
             SignUrlOption.httpMethod(HttpMethod.PUT),
             SignUrlOption.withV4Signature(),
             SignUrlOption.withExtHeaders(headers));
-    return new UploadTarget(url.toString(), "PUT", headers, clock.instant().plus(ttl));
+    return new UploadTarget(
+        url.toString(),
+        "PUT",
+        headers,
+        clock.instant().plus(ttl),
+        UploadProperties.Protocol.SIMPLE);
+  }
+
+  /**
+   * The API (not the browser) opens the session: it POSTs a short-lived signed URL with {@code
+   * x-goog-resumable: start} and {@code X-Upload-Content-Length}, so GCS enforces the declared
+   * size. The browser only receives the session URI.
+   */
+  @Override
+  public UploadTarget createResumableUpload(
+      String key, String contentType, long sizeBytes, Duration sessionTtl) {
+    Map<String, String> signed = Map.of("Content-Type", contentType, "x-goog-resumable", "start");
+    URL init =
+        sign(
+            key,
+            INIT_URL_TTL,
+            SignUrlOption.httpMethod(HttpMethod.POST),
+            SignUrlOption.withV4Signature(),
+            SignUrlOption.withExtHeaders(signed));
+    Map<String, String> request = new HashMap<>(signed);
+    request.put("X-Upload-Content-Length", Long.toString(sizeBytes));
+    if (browserOrigin != null && !browserOrigin.isBlank()) {
+      request.put("Origin", browserOrigin);
+    }
+    String sessionUri;
+    try {
+      sessionUri = sessionStarter.start(init.toURI(), request);
+    } catch (URISyntaxException ex) {
+      throw new ApiException(ErrorCode.STORAGE_UNAVAILABLE);
+    }
+    return new UploadTarget(
+        sessionUri,
+        "PUT",
+        Map.of(),
+        clock.instant().plus(sessionTtl),
+        UploadProperties.Protocol.RESUMABLE);
   }
 
   @Override

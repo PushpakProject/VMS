@@ -9,6 +9,7 @@ import com.vms.api.common.config.KafkaTopicsProperties;
 import com.vms.api.common.config.RecordingProperties;
 import com.vms.api.common.error.ApiException;
 import com.vms.api.common.error.ErrorCode;
+import com.vms.api.common.observability.VmsMetrics;
 import com.vms.api.common.security.CurrentUser;
 import com.vms.api.common.web.RequestIdFilter;
 import com.vms.api.outbox.OutboxService;
@@ -16,6 +17,7 @@ import com.vms.api.storage.StoragePort;
 import com.vms.api.storage.StoragePort.ObjectStat;
 import com.vms.api.storage.StoragePort.SignedUrl;
 import com.vms.api.storage.StoragePort.UploadTarget;
+import com.vms.api.storage.UploadProperties;
 import com.vms.api.video.domain.FailureCode;
 import com.vms.api.video.domain.ProcessingAttempt;
 import com.vms.api.video.domain.TrackingId;
@@ -25,6 +27,7 @@ import com.vms.api.video.events.VideoEvents;
 import com.vms.api.video.infrastructure.ProcessingAttemptRepository;
 import com.vms.api.video.infrastructure.VideoRepository;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.EnumSet;
 import java.util.List;
@@ -53,6 +56,8 @@ public class VideoService {
   private final OutboxService outbox;
   private final RecordingProperties recording;
   private final KafkaTopicsProperties topics;
+  private final VmsMetrics metrics;
+  private final UploadProperties upload;
   private final Clock clock;
 
   public VideoService(
@@ -62,6 +67,8 @@ public class VideoService {
       OutboxService outbox,
       RecordingProperties recording,
       KafkaTopicsProperties topics,
+      VmsMetrics metrics,
+      UploadProperties upload,
       Clock clock) {
     this.videos = videos;
     this.attempts = attempts;
@@ -69,6 +76,8 @@ public class VideoService {
     this.outbox = outbox;
     this.recording = recording;
     this.topics = topics;
+    this.metrics = metrics;
+    this.upload = upload;
     this.clock = clock;
   }
 
@@ -81,16 +90,29 @@ public class VideoService {
     Video video =
         videos
             .findByOwnerIdAndClientUploadId(user.id(), clientUploadId)
-            .orElseGet(() -> videos.save(newVideo(user, clientUploadId, cmd)));
-    UploadTarget target =
-        video.getStatus() == VideoStatus.UPLOADING
-            ? storage.createUploadTarget(
-                video.getRawObjectKey(),
-                video.getContentType(),
-                recording.maxUploadBytes(),
-                recording.uploadUrlTtl())
-            : null;
+            .orElseGet(
+                () -> {
+                  metrics.uploadInitiated();
+                  return videos.save(newVideo(user, clientUploadId, cmd));
+                });
+    UploadTarget target = video.getStatus() == VideoStatus.UPLOADING ? uploadTarget(video) : null;
     return new UploadSession(video, target);
+  }
+
+  /** Resumable session for the exact declared size, or a size-capped single PUT. */
+  private UploadTarget uploadTarget(Video video) {
+    if (upload.protocol() == UploadProperties.Protocol.RESUMABLE) {
+      return storage.createResumableUpload(
+          video.getRawObjectKey(),
+          video.getContentType(),
+          video.getSizeBytes(),
+          upload.sessionTtl());
+    }
+    return storage.createUploadTarget(
+        video.getRawObjectKey(),
+        video.getContentType(),
+        recording.maxUploadBytes(),
+        recording.uploadUrlTtl());
   }
 
   /**
@@ -115,12 +137,53 @@ public class VideoService {
     if (rejection != null) {
       deleteQuietly(video.getRawObjectKey());
       video.markFailed(rejection, now);
+      metrics.uploadRejected(rejection);
       log.info("Upload rejected for video {}: {}", video.getId(), rejection);
       return video;
     }
     video.markUploaded(stat.sizeBytes(), durationMs, now);
     publishUploaded(video, now);
+    metrics.uploadCompleted();
     return video;
+  }
+
+  /**
+   * Safety net for clients that uploaded but never called {@code /complete} (closed tab, lost
+   * device): if the object is in storage the video continues as if completed; registrations with no
+   * object are abandoned after {@code abandonAfter}.
+   */
+  @Transactional
+  public ReconcileOutcome reconcile(UUID videoId, Duration abandonAfter) {
+    Video video = videos.findById(videoId).orElse(null);
+    if (video == null || video.isDeleted() || video.getStatus() != VideoStatus.UPLOADING) {
+      return ReconcileOutcome.SKIPPED;
+    }
+    Instant now = clock.instant();
+    var stat = storage.stat(video.getRawObjectKey());
+    if (stat.isPresent()) {
+      FailureCode rejection = validateUploadedObject(video, stat.get(), null);
+      if (rejection != null) {
+        deleteQuietly(video.getRawObjectKey());
+        video.markFailed(rejection, now);
+        return ReconcileOutcome.REJECTED;
+      }
+      video.markUploaded(stat.get().sizeBytes(), null, now);
+      publishUploaded(video, now);
+      return ReconcileOutcome.RECOVERED;
+    }
+    if (video.getCreatedAt().plus(abandonAfter).isBefore(now)) {
+      video.markAbandoned(now);
+      return ReconcileOutcome.ABANDONED;
+    }
+    return ReconcileOutcome.WAITING;
+  }
+
+  public enum ReconcileOutcome {
+    SKIPPED,
+    WAITING,
+    RECOVERED,
+    REJECTED,
+    ABANDONED
   }
 
   @Transactional(readOnly = true)

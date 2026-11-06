@@ -394,14 +394,33 @@ label {
   gap: 14px;
 }
 
+.login-form,
+.login-google {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
 .divider {
-  text-align: center;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--border);
 }
 
 .google-button {
   display: flex;
   justify-content: center;
+  width: 100%;
+  min-height: var(--touch);
 }
 
 .list-header {
@@ -464,4 +483,20 @@ label {
   max-height: 70vh;
   background: #000;
   border-radius: var(--radius-sm);
+}
+
+.details {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 0 0 8px;
+}
+
+.details dt {
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.details dd {
+  margin: 0;
 }

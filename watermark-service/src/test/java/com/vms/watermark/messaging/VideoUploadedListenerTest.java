@@ -16,6 +16,8 @@ import com.vms.watermark.exception.NonRetryableProcessingException;
 import com.vms.watermark.exception.RetryableProcessingException;
 import com.vms.watermark.messaging.WatermarkEvents.Outcome;
 import com.vms.watermark.messaging.WatermarkEvents.WatermarkResult;
+import com.vms.watermark.observability.WatermarkMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.math.BigInteger;
 import java.time.Duration;
 import java.util.List;
@@ -52,7 +54,13 @@ class VideoUploadedListenerTest {
             "veryfast",
             23,
             2);
-    listener = new VideoUploadedListener(job, publisher, properties, JsonMapper.builder().build());
+    listener =
+        new VideoUploadedListener(
+            job,
+            publisher,
+            properties,
+            JsonMapper.builder().build(),
+            new WatermarkMetrics(new SimpleMeterRegistry()));
   }
 
   private ConsumerRecord<String, String> record(Integer attempt) {

@@ -6,6 +6,7 @@ import com.vms.api.common.error.ApiException;
 import com.vms.api.common.error.ErrorCode;
 import java.util.List;
 import java.util.Set;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
@@ -30,8 +31,15 @@ public class GoogleIdTokenVerifierAdapter implements GoogleTokenVerifierPort {
   private final GoogleAuthProperties properties;
   private volatile JwtDecoder decoder;
 
+  @Autowired
   public GoogleIdTokenVerifierAdapter(GoogleAuthProperties properties) {
     this.properties = properties;
+  }
+
+  /** Tests: verify against a local key instead of Google's JWKS, with the same validators. */
+  GoogleIdTokenVerifierAdapter(GoogleAuthProperties properties, NimbusJwtDecoder decoder) {
+    this.properties = properties;
+    this.decoder = withValidators(decoder);
   }
 
   @Override
@@ -56,16 +64,19 @@ public class GoogleIdTokenVerifierAdapter implements GoogleTokenVerifierPort {
     if (current == null) {
       synchronized (this) {
         if (decoder == null) {
-          NimbusJwtDecoder nimbus = NimbusJwtDecoder.withJwkSetUri(properties.jwkSetUri()).build();
-          nimbus.setJwtValidator(
-              new DelegatingOAuth2TokenValidator<>(
-                  new JwtTimestampValidator(), issuerValidator(), audienceValidator()));
-          decoder = nimbus;
+          decoder = withValidators(NimbusJwtDecoder.withJwkSetUri(properties.jwkSetUri()).build());
         }
         current = decoder;
       }
     }
     return current;
+  }
+
+  private JwtDecoder withValidators(NimbusJwtDecoder nimbus) {
+    nimbus.setJwtValidator(
+        new DelegatingOAuth2TokenValidator<>(
+            new JwtTimestampValidator(), issuerValidator(), audienceValidator()));
+    return nimbus;
   }
 
   private static OAuth2TokenValidator<Jwt> issuerValidator() {

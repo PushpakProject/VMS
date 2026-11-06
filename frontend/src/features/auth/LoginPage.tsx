@@ -5,12 +5,27 @@ import { ApiError, NetworkError, messageOf } from '../../lib/errors';
 import { useAuth } from './AuthContext';
 import { GoogleSignInButton } from './GoogleSignInButton';
 
-function describe(error: unknown): string {
+const OFFLINE_MESSAGE = 'You appear to be offline. Signing in needs a network connection.';
+
+function describePassword(error: unknown): string {
   if (error instanceof NetworkError) {
-    return 'You appear to be offline. Signing in needs a network connection.';
+    return OFFLINE_MESSAGE;
   }
   if (error instanceof ApiError && error.status === 401) {
     return 'Invalid username or password.';
+  }
+  return messageOf(error);
+}
+
+function describeGoogle(error: unknown): string {
+  if (error instanceof NetworkError) {
+    return OFFLINE_MESSAGE;
+  }
+  if (error instanceof ApiError && error.status === 401) {
+    return 'Google sign-in failed. Please try again or use your password.';
+  }
+  if (error instanceof ApiError && error.status === 404) {
+    return "Google sign-in isn't enabled on this server.";
   }
   return messageOf(error);
 }
@@ -21,12 +36,15 @@ export function LoginPage() {
   const [loginName, setLoginName] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'password' | 'google' | null>(null);
 
   const onGoogle = useCallback(
     (idToken: string) => {
       setError(null);
-      loginWithGoogle(idToken).catch((e: unknown) => setError(describe(e)));
+      setBusy('google');
+      loginWithGoogle(idToken)
+        .catch((e: unknown) => setError(describeGoogle(e)))
+        .finally(() => setBusy(null));
     },
     [loginWithGoogle],
   );
@@ -37,20 +55,20 @@ export function LoginPage() {
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    setBusy(true);
+    setBusy('password');
     setError(null);
     try {
       await login(loginName, password);
     } catch (e) {
-      setError(describe(e));
+      setError(describePassword(e));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
   return (
     <main className="login">
-      <form className="card login-card" onSubmit={onSubmit} noValidate>
+      <div className="card login-card">
         <h1>Parcel Video Recorder</h1>
         <p className="muted">Sign in to record and upload parcel videos.</p>
         {status === 'offline' && (
@@ -64,45 +82,56 @@ export function LoginPage() {
             {error}
           </div>
         )}
-        <label>
-          Email or username
-          <input
-            autoComplete="username"
-            value={loginName}
-            onChange={(e) => setLoginName(e.target.value)}
-            required
-            maxLength={254}
-          />
-        </label>
-        <label>
-          Password
-          <input
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            maxLength={128}
-          />
-        </label>
-        <button
-          className="btn btn-primary"
-          type="submit"
-          disabled={busy || !loginName || !password}
-        >
-          {busy ? 'Signing in…' : 'Sign in'}
-        </button>
+
         {config.googleClientId && (
-          <>
-            <div className="divider">or</div>
+          <section className="login-google" aria-label="Sign in with Google">
             <GoogleSignInButton
               clientId={config.googleClientId}
               onCredential={onGoogle}
               onError={setError}
             />
-          </>
+            {busy === 'google' && (
+              <p className="muted small" role="status">
+                Signing in with Google…
+              </p>
+            )}
+            <div className="divider" role="separator">
+              or
+            </div>
+          </section>
         )}
-      </form>
+
+        <form className="login-form" onSubmit={onSubmit} noValidate>
+          <label>
+            Email or username
+            <input
+              autoComplete="username"
+              value={loginName}
+              onChange={(e) => setLoginName(e.target.value)}
+              required
+              maxLength={254}
+            />
+          </label>
+          <label>
+            Password
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              maxLength={128}
+            />
+          </label>
+          <button
+            className="btn btn-primary"
+            type="submit"
+            disabled={busy !== null || !loginName || !password}
+          >
+            {busy === 'password' ? 'Signing in…' : 'Sign in'}
+          </button>
+        </form>
+      </div>
     </main>
   );
 }

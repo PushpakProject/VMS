@@ -27,8 +27,17 @@ public final class VideoDtos {
       @NotNull @Positive Long sizeBytes,
       Instant recordedAt) {}
 
+  /**
+   * How the browser uploads. SIMPLE: one PUT to {@code url} with {@code headers}. RESUMABLE: PUT
+   * pieces of {@code chunkSizeBytes} to the session {@code url} with {@code Content-Range}.
+   */
   public record UploadInstruction(
-      String protocol, String url, String method, Map<String, String> headers, Instant expiresAt) {}
+      String protocol,
+      String url,
+      String method,
+      Map<String, String> headers,
+      Instant expiresAt,
+      Integer chunkSizeBytes) {}
 
   public record InitiateUploadResponse(UUID videoId, String status, UploadInstruction upload) {}
 

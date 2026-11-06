@@ -15,6 +15,7 @@ import com.vms.api.common.error.ErrorCode;
 import com.vms.api.common.security.CurrentUser;
 import com.vms.api.common.security.ProblemSecurityHandlers;
 import com.vms.api.common.security.SecurityConfig;
+import com.vms.api.storage.UploadProperties;
 import com.vms.api.video.application.VideoService;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -31,7 +32,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 @WebMvcTest(controllers = VideoController.class)
 @Import({SecurityConfig.class, ProblemSecurityHandlers.class})
-@EnableConfigurationProperties(AuthProperties.class)
+@EnableConfigurationProperties({AuthProperties.class, UploadProperties.class})
 @TestPropertySource(
     properties = {
       "vms.auth.jwt-secret=c2VjcmV0LXNlY3JldC1zZWNyZXQtc2VjcmV0LXNlY3JldA==",

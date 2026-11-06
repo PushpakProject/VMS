@@ -9,6 +9,7 @@ import com.vms.api.common.error.ApiException;
 import com.vms.api.common.error.ErrorCode;
 import java.time.Clock;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +24,7 @@ public class AuthService {
   private final UserRepository users;
   private final PasswordEncoder passwordEncoder;
   private final Clock clock;
+  private final boolean registrationEnabled;
 
   public AuthService(
       AuthenticationStrategyResolver strategies,
@@ -30,13 +32,15 @@ public class AuthService {
       RefreshTokenService refreshTokens,
       UserRepository users,
       PasswordEncoder passwordEncoder,
-      Clock clock) {
+      Clock clock,
+      @Value("${vms.auth.registration-enabled:true}") boolean registrationEnabled) {
     this.strategies = strategies;
     this.accessTokens = accessTokens;
     this.refreshTokens = refreshTokens;
     this.users = users;
     this.passwordEncoder = passwordEncoder;
     this.clock = clock;
+    this.registrationEnabled = registrationEnabled;
   }
 
   /** Failed-attempt counters must be persisted even though the login itself fails. */
@@ -48,6 +52,9 @@ public class AuthService {
 
   @Transactional
   public AuthResult register(String email, String username, String displayName, String password) {
+    if (!registrationEnabled) {
+      throw new ApiException(ErrorCode.FORBIDDEN, "Self-registration is disabled.");
+    }
     if (users.existsByEmailOrUsername(User.normalize(email), User.normalize(username))) {
       throw new ApiException(ErrorCode.ACCOUNT_EXISTS);
     }

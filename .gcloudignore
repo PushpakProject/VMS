@@ -1,0 +1,12 @@
+.git
+.gitignore
+**/node_modules/
+**/target/
+**/dist/
+**/.data/
+infra/.env
+infra/.deploy.env
+# Terraform working files: providers are large, state and tfvars hold secrets/settings.
+**/.terraform/
+infra/terraform/*.tfstate*
+infra/terraform/terraform.tfvars

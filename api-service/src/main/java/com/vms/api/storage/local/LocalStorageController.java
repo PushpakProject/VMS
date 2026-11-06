@@ -1,5 +1,6 @@
 package com.vms.api.storage.local;
 
+import com.vms.api.common.config.RecordingProperties;
 import com.vms.api.common.error.ApiException;
 import com.vms.api.common.error.ErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
@@ -47,7 +48,8 @@ public class LocalStorageController {
       throws IOException {
     String key = keyOf(request);
     verify(signature, "PUT", key, expires, contentType, maxBytes);
-    if (!contentType.equals(requestType)) {
+    if (!RecordingProperties.baseContentType(contentType)
+        .equals(RecordingProperties.baseContentType(requestType))) {
       throw new ApiException(ErrorCode.FORBIDDEN, "Content-Type does not match the signature.");
     }
     if (request.getContentLengthLong() > maxBytes) {

@@ -1,5 +1,6 @@
 package com.vms.api.video.application;
 
+import com.vms.api.common.observability.VmsMetrics;
 import com.vms.api.outbox.ProcessedEvent;
 import com.vms.api.outbox.ProcessedEventRepository;
 import com.vms.api.storage.StoragePort;
@@ -33,6 +34,7 @@ public class WatermarkResultHandler {
   private final ProcessingAttemptRepository attempts;
   private final ProcessedEventRepository processedEvents;
   private final StoragePort storage;
+  private final VmsMetrics metrics;
   private final Clock clock;
 
   public WatermarkResultHandler(
@@ -40,11 +42,13 @@ public class WatermarkResultHandler {
       ProcessingAttemptRepository attempts,
       ProcessedEventRepository processedEvents,
       StoragePort storage,
+      VmsMetrics metrics,
       Clock clock) {
     this.videos = videos;
     this.attempts = attempts;
     this.processedEvents = processedEvents;
     this.storage = storage;
+    this.metrics = metrics;
     this.clock = clock;
   }
 
@@ -105,11 +109,14 @@ public class WatermarkResultHandler {
         } else if (current.canTransitionTo(VideoStatus.READY)) {
           long size = result.finalSizeBytes() == null ? 0 : result.finalSizeBytes();
           video.markReady(result.finalObjectKey(), size, result.durationMs(), now);
+          metrics.videoReady();
         }
       }
       case FAILED -> {
         if (current.canTransitionTo(VideoStatus.FAILED) && current != VideoStatus.UPLOADING) {
-          video.markFailed(FailureCode.fromWire(result.errorCode()), now);
+          FailureCode code = FailureCode.fromWire(result.errorCode());
+          video.markFailed(code, now);
+          metrics.videoFailed(code);
         }
       }
     }
